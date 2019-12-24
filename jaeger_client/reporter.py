@@ -21,6 +21,8 @@ import tornado.gen
 import tornado.ioloop
 import tornado.queues
 import socket
+
+from thrift.protocol.TBinaryProtocol import TBinaryProtocol
 from tornado.concurrent import Future
 from .constants import DEFAULT_FLUSH_INTERVAL
 from . import thrift
@@ -173,12 +175,14 @@ class Reporter(NullReporter):
         self.logger.info('Span publisher exited')
 
     # method for protocol factory
-    def getProtocol(self, transport):
+    def getProtocol(self, transport, is_binary=False):
         """
         Implements Thrift ProtocolFactory interface
         :param: transport:
         :return: Thrift compact protocol
         """
+        if is_binary:
+            return TBinaryProtocol(transport)
         return TCompactProtocol.TCompactProtocol(transport)
 
     @tornado.gen.coroutine

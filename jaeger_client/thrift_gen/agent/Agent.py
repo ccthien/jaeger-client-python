@@ -22,6 +22,9 @@ except:
 from tornado import gen
 from tornado import concurrent
 from thrift.transport import TTransport
+from thrift.compat import BufferIO
+import requests
+import os
 
 class Iface(object):
   def emitZipkinBatch(self, spans):
@@ -37,6 +40,10 @@ class Iface(object):
      - batch
     """
     pass
+
+
+JAEGER_COLLECTOR_URL = os.getenv('JAEGER_COLLECTOR_URL', 'http://localhost:14268')
+JAEGER_LIMIT_UDP = int(os.getenv('JAEGER_LIMIT_UDP', '65536'))
 
 
 class Client(Iface):
@@ -105,7 +112,25 @@ class Client(Iface):
     args.batch = batch
     args.write(oprot)
     oprot.writeMessageEnd()
-    oprot.trans.flush()
+    n = oprot.trans._TBufferedTransport__wbuf.getbuffer().nbytes
+    if n < JAEGER_LIMIT_UDP:
+      oprot.trans.flush()
+    else:
+      oprot.trans._TBufferedTransport__wbuf = BufferIO()
+
+      oprot_bin = self._oprot_factory.getProtocol(self._transport, True)
+      batch.write(oprot_bin)
+      out = oprot_bin.trans._TBufferedTransport__wbuf.getvalue()
+      oprot_bin.trans._TBufferedTransport__wbuf = BufferIO()
+
+      r = requests.post(
+        self.JAEGER_COLLECTOR_URL + '/api/traces',
+        headers={
+          'Jaeger-Report': 'true',
+          'Content-Type': 'application/vnd.apache.thrift.binary',
+        },
+        data=out
+      )
 
 class Processor(Iface, TProcessor):
   def __init__(self, handler):
